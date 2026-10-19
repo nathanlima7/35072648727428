@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  username       String   @unique
+  passwordHash   String
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+
+  street         String
+  number         String
+  city           String
+  complement     String?
+  displayAddress String   @unique
+
+  devices          Device[]
+  drafts           Draft[]
+  sentLetters      Letter[]  @relation("sender")
+  receivedLetters  Letter[]  @relation("recipient")
+  stamps           UserStamp[]
+  customStamps     Stamp[]   @relation("customStamps")
+  wallet           Wallet?
+  transactions     WalletTransaction[]
+  pushSubs         PushSubscription[]
+  reads            LetterRead[]
+  notificationPrefs NotificationPreference?
+}
+
+model Device {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  installId    String   @unique
+  registeredAt DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  pushEnabled  Boolean  @default(false)
+
+  pushSubs     PushSubscription[]
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Draft {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipientAddress String?
+  title            String?
+  content          String   @default("")
+  version          Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Letter {
+  id                String    @id @default(cuid())
+  trackingCode      String    @unique
+  senderId          String
+  sender            User      @relation("sender", fields: [senderId], references: [id])
+  recipientId       String?
+  recipient         User?     @relation("recipient", fields: [recipientId], references: [id])
+  recipientAddress  String
+  title             String?
+  content           String
+  attachedImage     String?
+  kind              String    @default("letter")
+  status            String    @default("postada")
+  failureReason     String?
+  sentAt            DateTime  @default(now())
+  estimatedDelivery DateTime
+  deliveredAt       DateTime?
+  returnedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  events            TrackingEvent[]
+  stamps            LetterStamp[]
+  reads             LetterRead[]
+}
+
+model TrackingEvent {
+  id        String   @id @default(cuid())
+  letterId  String
+  letter    Letter   @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  status    String
+  message   String
+  createdAt DateTime @default(now())
+}
+
+model Stamp {
+  id           String   @id @default(cuid())
+  name         String
+  imagePath    String?
+  imageData    String?
+  description  String?
+  price        Int
+  category     String?
+  available    Boolean  @default(true)
+
+  isCustom     Boolean  @default(false)
+  ownerId      String?
+  owner        User?    @relation("customStamps", fields: [ownerId], references: [id])
+
+  // Sazonal: só aparece no catálogo se hoje estiver entre
+  // seasonalFrom e seasonalUntil (inclusive, em UTC).
+  seasonal      Boolean   @default(false)
+  seasonalFrom  DateTime?
+  seasonalUntil DateTime?
+  eventName     String?
+
+  createdAt    DateTime @default(now())
+
+  userStamps   UserStamp[]
+  letterStamps LetterStamp[]
+
+  @@index([ownerId])
+  @@index([seasonal, seasonalFrom, seasonalUntil])
+}
+
+// -----------------------------------------------------------------
+// UserStamp: representa a posse de um selo por um usuário.
+//
+// - source = "purchased"  → comprado no catálogo ou criado pelo próprio
+//                            autor. Pode ser usado para enviar.
+// - source = "received"   → recebido em carta. Só coleção, não envia.
+//
+// stampId é NULLABLE porque, quando um selo autoral é apagado pelo
+// dono, as posses de terceiros precisam sobreviver (viram
+// "lembranças" — perdem o vínculo vivo com o Stamp, mas mantêm
+// quantity / receivedFrom / receivedAt / acquiredAt).
+// -----------------------------------------------------------------
+model UserStamp {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stampId    String?
+  stamp      Stamp?   @relation(fields: [stampId], references: [id], onDelete: SetNull)
+
+  // Cópia congelada dos dados do selo no momento da aquisição.
+  // Sobrevive quando o Stamp original é apagado pelo dono.
+  frozenName      String?
+  frozenImagePath String?
+  frozenImageData String?
+  frozenCategory  String?
+  frozenIsCustom  Boolean @default(false)
+
+  quantity   Int      @default(1)
+  acquiredAt DateTime @default(now())
+
+  source     String   @default("purchased")
+
+  receivedFrom String?
+  receivedAt   DateTime?
+
+  @@unique([userId, stampId, source])
+}
+
+model LetterStamp {
+  id         String  @id @default(cuid())
+  letterId   String
+  letter     Letter  @relation(fields: [letterId], references: [id], onDelete: Cascade)
+
+  stampId    String?
+  stamp      Stamp?  @relation(fields: [stampId], references: [id])
+
+  name       String
+  imagePath  String?
+  imageData  String?
+  isCustom   Boolean @default(false)
+
+  quantity   Int     @default(1)
+
+  @@index([letterId])
+  @@index([stampId])
+}
+
+model Wallet {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance           Int       @default(0)
+  lastWeeklyReset   DateTime?
+  updatedAt         DateTime  @updatedAt
+}
+
+model WalletTransaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  amount    Int
+  reason    String
+  refType   String?
+  refId     String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId  String?
+  device    Device?  @relation(fields: [deviceId], references: [id])
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  active    Boolean  @default(true)
+}
+
+model LetterRead {
+  id       String   @id @default(cuid())
+  letterId String
+  letter   Letter   @relation(fields: [letterId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt   DateTime @default(now())
+  @@unique([letterId, userId])
+}
+
+model NotificationPreference {
+  id                String  @id @default(cuid())
+  userId            String  @unique
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  onLetterSent      Boolean @default(true)
+  onTrackingUpdate  Boolean @default(false)
+  onLetterDelivered Boolean @default(true)
+  onDraftSynced     Boolean @default(false)
+}
+
+model DeliveryJob {
+  id         String    @id
+  letterId   String
+  nextRunAt  DateTime
+  nextStatus String
+  lockedAt   DateTime?
+  completed  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  @@index([completed, nextRunAt])
+}
