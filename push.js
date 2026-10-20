@@ -36,10 +36,6 @@ router.get('/public-key', (req, res) => {
 
 // ---------------------------------------------------------------
 // POST /api/push/subscribe
-//
-// Regra: cada usuário tem NO MÁXIMO UMA inscrição ativa.
-// Ao registrar uma nova, todas as anteriores são desativadas.
-// Isso evita duplicação (PWA + Chrome no mesmo aparelho).
 // ---------------------------------------------------------------
 router.post('/subscribe', requireAuth, async (req, res, next) => {
   try {
@@ -53,7 +49,6 @@ router.post('/subscribe', requireAuth, async (req, res, next) => {
 
     const data = schema.parse(req.body);
 
-    // 1) Cria/atualiza a inscrição atual como ativa
     const sub = await prisma.pushSubscription.upsert({
       where: { endpoint: data.endpoint },
       create: {
@@ -71,7 +66,6 @@ router.post('/subscribe', requireAuth, async (req, res, next) => {
       },
     });
 
-    // 2) Desativa TODAS as outras inscrições desse usuário
     await prisma.pushSubscription.updateMany({
       where: {
         userId: req.userId,
@@ -125,10 +119,6 @@ router.post('/test', requireAuth, async (req, res, next) => {
 
 // ---------------------------------------------------------------
 // sendPush(userId, payload)
-//
-// Envia para a inscrição ATIVA do usuário. Se por algum motivo
-// houver mais de uma ativa (dados antigos), envia só para a mais
-// recente — como defesa extra.
 // ---------------------------------------------------------------
 export async function sendPush(userId, payload) {
   if (!vapidReady) return 0;
@@ -136,7 +126,7 @@ export async function sendPush(userId, payload) {
   const subs = await prisma.pushSubscription.findMany({
     where: { userId, active: true },
     orderBy: { createdAt: 'desc' },
-    take: 1,   // ← defesa extra: nunca envia para mais de uma
+    take: 1,
   });
 
   if (!subs.length) return 0;
@@ -151,11 +141,15 @@ export async function sendPush(userId, payload) {
     await webpush.sendNotification(pushConfig, JSON.stringify(payload));
     return 1;
   } catch (e) {
-    if (e.statusCode === 404 || e.statusCode === 410) {
-      await prisma.pushSubscription.update({
+    // 404 e 410: O aparelho sumiu/navegador desinstalou.
+    // 400: Inscrição inválida (geralmente porque a chave VAPID mudou).
+    if (e.statusCode === 404 || e.statusCode === 410 || e.statusCode === 400) {
+      // ALTERAÇÃO AQUI: Deleta a inscrição inválida do banco.
+      await prisma.pushSubscription.delete({
         where: { id: sub.id },
-        data: { active: false },
       }).catch(() => {});
+      
+      console.log(`[push] Inscrição inválida (${e.statusCode}) removida do banco.`);
     } else {
       console.error('[push] erro ao enviar para', sub.endpoint.slice(0, 40), e.message);
     }
