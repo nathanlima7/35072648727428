@@ -41,31 +41,16 @@ export const STATE_MESSAGES = {
 
 export const LOST_LETTER_CHANCE = 0.03; // 3%
 
-// ---------------------------------------------------------------
-// Endereço em componentes
-// ---------------------------------------------------------------
 export function buildDisplayAddress({ street, number, city, complement }) {
-  // Função para remover acentos e deixar tudo minúsculo
-  const normalize = (str) => 
-    String(str || '')
-      .normalize('NFD') // Separa as letras dos acentos
-      .replace(/[\u0300-\u036f]/g, '') // Remove os acentos
-      .toLowerCase() // Tudo minúsculo
-      .trim()
-      .replace(/\s+/g, ' '); // Remove espaços duplos
-
-  const s = normalize(street);
-  const n = normalize(number);
-  const c = normalize(city);
-  const comp = normalize(complement);
+  const s = String(street || '').trim().replace(/\s+/g, ' ');
+  const n = String(number || '').trim();
+  const c = String(city || '').trim().replace(/\s+/g, ' ');
+  const comp = String(complement || '').trim();
 
   if (!s || !n || !c) return null;
 
-  // Aqui, para o "display", podemos colocar a primeira letra em maiúscula para ficar bonito na tela
-  const format = (str) => str.replace(/\b\w/g, l => l.toUpperCase());
-
-  const base = `${format(s)}, nº ${n.toUpperCase()} — ${format(c)}`;
-  return comp ? `${base} (${format(comp)})` : base;
+  const base = `${s}, nº ${n} — ${c}`;
+  return comp ? `${base} (${comp})` : base;
 }
 
 export function validateAddressParts({ street, number, city }) {
