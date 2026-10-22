@@ -75,9 +75,15 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ error: 'Você não pode enviar mensagem para si mesmo.' });
     }
 
-    const recipient = await prisma.user.findUnique({
-      where: { displayAddress: recipientAddress },
-    });
+    // Como deve ficar (Ignorando maiúsculas/minúsculas e usando a versão antiga do Prisma 5):
+const recipient = await prisma.user.findFirst({
+  where: {
+    displayAddress: {
+      equals: recipientAddress,
+      mode: 'insensitive', // A mágica acontece aqui!
+    },
+  },
+});
     const enderecoExiste = Boolean(recipient);
 
     // 2. Normaliza selos (ignorado para telegrama)
