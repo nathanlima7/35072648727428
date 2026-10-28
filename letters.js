@@ -418,142 +418,22 @@ router.get('/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/:id/read', async (req, res, next) => {
   try {
-    const schema = z.object({
-      kind: z.enum(['letter', 'telegram', 'postcard']).default('letter'),
-      
-      recipientAddress: z.string().min(5).max(120).optional(),
-      recipientStreet: z.string().min(3).max(60).optional(),
-      recipientNumber: z.string().min(1).max(6).optional(),
-      recipientCity: z.string().min(2).max(40).optional(),
-      recipientComplement: z.string().max(30).optional().nullable(),
-
-      stamps: z.array(z.object({
-        stampId: z.string().min(1),
-        quantity: z.number().int().min(1).max(20),
-      })).max(10).optional(),
-
-      attachedImage: z.string().max(1_500_000).optional().nullable(),
-
-      title: z.string().max(120).nullable().optional(),
-      content: z.string().min(1).max(50_000),
+    const letter = await prisma.letter.findUnique({ where: { id: req.params.id } });
+    if (!letter) return res.status(404).json({ error: 'Mensagem não encontrada.' });
+    if (letter.recipientId !== req.userId) {
+      return res.status(403).json({ error: 'Apenas o destinatário pode marcar como lida.' });
+    }
+    if (letter.status !== 'entregue') {
+      return res.status(409).json({ error: 'A mensagem ainda não foi entregue.' });
+    }
+    await prisma.letterRead.upsert({
+      where: { letterId_userId: { letterId: letter.id, userId: req.userId } },
+      create: { letterId: letter.id, userId: req.userId },
+      update: {},
     });
-
-    const data = schema.parse(req.body);
-
-    // ... (Resolução de endereço e busca do sender/recipient igual ao que já existe) ...
-
-    // --- VALIDAÇÕES ESPECÍFICAS DO CARTÃO POSTAL ---
-    if (data.kind === 'postcard') {
-      if (!data.attachedImage) {
-        return res.status(400).json({ error: 'O cartão postal precisa de uma imagem.' });
-      }
-      if (!data.stamps || data.stamps.length === 0) {
-        return res.status(400).json({ error: 'O cartão postal exige pelo menos um selo.' });
-      }
-      if (!data.title) {
-        return res.status(400).json({ error: 'O cartão postal precisa de um título.' });
-      }
-      if (data.stamps.length > 1) {
-        return res.status(400).json({ error: 'O cartão postal aceita apenas um selo.' });
-      }
-    }
-
-    // --- Normaliza selos ---
-    const stampMap = new Map();
-    if (data.kind !== 'telegram') {
-      for (const s of (data.stamps || [])) {
-        stampMap.set(s.stampId, (stampMap.get(s.stampId) || 0) + s.quantity);
-      }
-    }
-    const stampList = [...stampMap.entries()].map(([stampId, quantity]) => ({ stampId, quantity }));
-
-    // ... (Extravio e ETA) ...
-    // O cartão postal leva de 2 a 3 dias:
-    let etaMs;
-    if (data.kind === 'telegram') {
-      // ... (4 a 5 horas)
-    } else if (data.kind === 'postcard') {
-      const days = 2 + Math.floor(Math.random() * 2); // 2 ou 3 dias
-      etaMs = days * 24 * 60 * 60 * 1000;
-    } else {
-      // ... (Carta normal)
-    }
-
-    const estimatedDelivery = new Date(now + etaMs);
-
-    // --- Transação Prisma ---
-    const letter = await prisma.$transaction(async (tx) => {
-      // 1. Cobrança do Telegrama (mantém igual)
-      if (data.kind === 'telegram') { /* ... */ }
-
-      // 2. Validação de posse de cada selo (agora serve para carta e cartão)
-      if (data.kind !== 'telegram' && stampList.length) {
-        // ... (Mesma validação de selos que já existe)
-      }
-
-      // 3. Cria a correspondência
-      const l = await tx.letter.create({
-        data: {
-          trackingCode: generateTrackingCode(),
-          senderId: sender.id,
-          recipientId: recipient?.id ?? null,
-          recipientAddress,
-          title: data.kind === 'telegram' ? null : (data.title ?? null),
-          content: data.content,
-          attachedImage: data.kind === 'telegram' ? null : (data.attachedImage ?? null),
-          kind: data.kind,
-          status: 'postada',
-          estimatedDelivery,
-        },
-      });
-
-      await tx.trackingEvent.create({
-        data: {
-          letterId: l.id,
-          status: 'postada',
-          message: data.kind === 'telegram' 
-            ? 'Telegrama postado. Entrega em algumas horas.' 
-            : data.kind === 'postcard'
-              ? 'Cartão postal postado. Entrega em 2 a 3 dias.'
-              : STATE_MESSAGES.postada,
-        },
-      });
-
-      // 4. Registra os selos (agora serve para carta e cartão)
-      if (data.kind !== 'telegram') {
-        // ... (Mesmo loop de decremento de selos que já existe)
-      }
-
-      return l;
-    });
-
-    // 5. Agendamento
-    if (data.kind === 'telegram') {
-       // ... (Job direto para entregue)
-    } else {
-      // Carta e Cartão Postal usam o mesmo fluxo de entrega (com devolução, extravio)
-      await scheduleDelivery(letter.id, estimatedDelivery, {
-        enderecoExiste,
-        vaiExtravirar,
-      }).catch((e) => console.error('[letters] schedule:', e.message));
-    }
-
-    // 6. Notificação
-    if (recipient) {
-      // ... (notifyLetterOnTheWay para todos)
-    }
-
-    res.status(201).json({
-      id: letter.id,
-      trackingCode: letter.trackingCode,
-      status: letter.status,
-      estimatedDelivery: letter.estimatedDelivery,
-      recipientExists: enderecoExiste,
-      kind: letter.kind,
-      stampsUsed: stampList,
-    });
+    res.status(204).end();
   } catch (e) { next(e); }
 });
 
