@@ -6,6 +6,9 @@ import { requireAuth } from './middleware.js';
 const router = Router();
 router.use(requireAuth);
 
+// ---------------------------------------------------------------
+// GET /api/drafts — Lista todos os rascunhos do usuário
+// ---------------------------------------------------------------
 router.get('/', async (req, res, next) => {
   try {
     const drafts = await prisma.draft.findMany({
@@ -16,22 +19,29 @@ router.get('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------
+// POST /api/drafts — Cria um novo rascunho
+// ---------------------------------------------------------------
 router.post('/', async (req, res, next) => {
   try {
     const data = z.object({
+      kind: z.enum(['letter', 'telegram']).default('letter'), // <--- ATUALIZAÇÃO AQUI
       recipientAddress: z.string().max(80).nullable().optional(),
       title: z.string().max(120).nullable().optional(),
       content: z.string().max(50_000).optional(),
     }).parse(req.body ?? {});
-    // ... resto igual
 
     const draft = await prisma.draft.create({
       data: { userId: req.userId, ...data },
     });
+    
     res.status(201).json(draft);
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------
+// GET /api/drafts/:id — Busca um rascunho específico
+// ---------------------------------------------------------------
 router.get('/:id', async (req, res, next) => {
   try {
     const draft = await prisma.draft.findFirst({
@@ -42,9 +52,13 @@ router.get('/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------
+// PATCH /api/drafts/:id — Atualiza um rascunho existente
+// ---------------------------------------------------------------
 router.patch('/:id', async (req, res, next) => {
   try {
     const data = z.object({
+      kind: z.enum(['letter', 'telegram']).optional(), // <--- ATUALIZAÇÃO AQUI
       recipientAddress: z.string().max(80).nullable().optional(),
       title: z.string().max(120).nullable().optional(),
       content: z.string().max(50_000).optional(),
@@ -75,6 +89,9 @@ router.patch('/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------
+// DELETE /api/drafts/:id — Exclui um rascunho
+// ---------------------------------------------------------------
 router.delete('/:id', async (req, res, next) => {
   try {
     const result = await prisma.draft.deleteMany({
