@@ -8,10 +8,7 @@ router.use(requireAuth);
 
 router.get('/', async (req, res, next) => {
   try {
-    const drafts = await prisma.draft.findMany({
-      where: { userId: req.userId },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const drafts = await prisma.draft.findMany({ where: { userId: req.userId }, orderBy: { updatedAt: 'desc' } });
     res.json(drafts);
   } catch (e) { next(e); }
 });
@@ -19,24 +16,21 @@ router.get('/', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const data = z.object({
-      recipientAddress: z.string().max(80).nullable().optional(),
+      kind: z.enum(['letter', 'telegram', 'postcard']).optional().default('letter'),
+      recipientAddress: z.string().max(120).nullable().optional(),
       title: z.string().max(120).nullable().optional(),
-      content: z.string().max(50_000).optional(),
+      content: z.string().max(50_000).optional().default(''),
+      attachedImage: z.string().max(1_500_000).nullable().optional(),
     }).parse(req.body ?? {});
-    // ... resto igual
 
-    const draft = await prisma.draft.create({
-      data: { userId: req.userId, ...data },
-    });
+    const draft = await prisma.draft.create({ data: { userId: req.userId, ...data } });
     res.status(201).json(draft);
   } catch (e) { next(e); }
 });
 
 router.get('/:id', async (req, res, next) => {
   try {
-    const draft = await prisma.draft.findFirst({
-      where: { id: req.params.id, userId: req.userId },
-    });
+    const draft = await prisma.draft.findFirst({ where: { id: req.params.id, userId: req.userId } });
     if (!draft) return res.status(404).json({ error: 'Rascunho não encontrado.' });
     res.json(draft);
   } catch (e) { next(e); }
@@ -45,31 +39,24 @@ router.get('/:id', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const data = z.object({
-      recipientAddress: z.string().max(80).nullable().optional(),
+      kind: z.enum(['letter', 'telegram', 'postcard']).optional(),
+      recipientAddress: z.string().max(120).nullable().optional(),
       title: z.string().max(120).nullable().optional(),
       content: z.string().max(50_000).optional(),
+      attachedImage: z.string().max(1_500_000).nullable().optional(),
       version: z.number().int().optional(),
     }).parse(req.body ?? {});
 
-    const existing = await prisma.draft.findFirst({
-      where: { id: req.params.id, userId: req.userId },
-    });
+    const existing = await prisma.draft.findFirst({ where: { id: req.params.id, userId: req.userId } });
     if (!existing) return res.status(404).json({ error: 'Rascunho não encontrado.' });
 
-    // Controle otimista de versão para não sobrescrever alterações mais novas
-    if (data.version && data.version < existing.version) {
-      return res.status(409).json({
-        error: 'Rascunho foi modificado em outro dispositivo.',
-        serverVersion: existing.version,
-      });
+    if (data.version !== undefined && data.version < existing.version) {
+      return res.status(409).json({ error: 'Rascunho foi modificado em outro dispositivo.', serverVersion: existing.version });
     }
 
     const updated = await prisma.draft.update({
       where: { id: existing.id },
-      data: {
-        ...data,
-        version: existing.version + 1,
-      },
+      data: { ...data, version: existing.version + 1 },
     });
     res.json(updated);
   } catch (e) { next(e); }
@@ -77,9 +64,7 @@ router.patch('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
-    const result = await prisma.draft.deleteMany({
-      where: { id: req.params.id, userId: req.userId },
-    });
+    const result = await prisma.draft.deleteMany({ where: { id: req.params.id, userId: req.userId } });
     if (!result.count) return res.status(404).json({ error: 'Rascunho não encontrado.' });
     res.status(204).end();
   } catch (e) { next(e); }
