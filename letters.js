@@ -42,7 +42,6 @@ router.post('/', async (req, res, next) => {
 
     const data = schema.parse(req.body);
 
-    // Validações de conteúdo para Carta e Telegrama
     if (data.kind === 'letter' && (!data.content || data.content.trim().length === 0)) {
       return res.status(400).json({ error: 'A carta precisa de uma mensagem.' });
     }
@@ -50,7 +49,6 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ error: 'O telegrama precisa de uma mensagem.' });
     }
 
-    // Validações específicas do Cartão Postal
     if (data.kind === 'postcard') {
       if (!data.attachedImage) {
         return res.status(400).json({ error: 'O cartão postal precisa de uma imagem.' });
@@ -68,7 +66,6 @@ router.post('/', async (req, res, next) => {
       }
     }
 
-    // Endereço
     let recipientAddress = data.recipientAddress
       ? String(data.recipientAddress).trim().replace(/\s+/g, ' ')
       : null;
@@ -104,7 +101,6 @@ router.post('/', async (req, res, next) => {
     });
     const enderecoExiste = Boolean(recipient);
 
-    // Selos
     const stampMap = new Map();
     if (data.kind !== 'telegram') {
       for (const s of (data.stamps || [])) {
@@ -113,7 +109,6 @@ router.post('/', async (req, res, next) => {
     }
     const stampList = [...stampMap.entries()].map(([stampId, quantity]) => ({ stampId, quantity }));
 
-    // Extravio + ETA
     const vaiExtravirar = data.kind === 'telegram' ? false : Math.random() < LOST_LETTER_CHANCE;
 
     const now = Date.now();
@@ -122,7 +117,7 @@ router.post('/', async (req, res, next) => {
     if (data.kind === 'telegram') {
       etaMs = (4 + Math.random()) * 60 * 60 * 1000;
     } else if (data.kind === 'postcard') {
-      etaMs = (2 + Math.floor(Math.random() * 2)) * 24 * 60 * 60 * 1000; // 2 a 3 dias
+      etaMs = (2 + Math.floor(Math.random() * 2)) * 24 * 60 * 60 * 1000;
     } else {
       if (config.delivery.devMode) {
         etaMs = (config.delivery.devMinSeconds + Math.random() * (config.delivery.devMaxSeconds - config.delivery.devMinSeconds)) * 1000;
@@ -133,7 +128,6 @@ router.post('/', async (req, res, next) => {
     }
     const estimatedDelivery = new Date(now + etaMs);
 
-    // Transação
     const letter = await prisma.$transaction(async (tx) => {
       if (data.kind === 'telegram') {
         const wallet = await tx.wallet.findUnique({ where: { userId: sender.id } });
@@ -213,7 +207,10 @@ router.post('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ... Rotas de Listagem mantidas idênticas ...
+// ---------------------------------------------------------------
+// ROTAS DE LISTAGEM
+// ---------------------------------------------------------------
+
 router.get('/sent', async (req, res, next) => {
   try {
     const letters = await prisma.letter.findMany({ where: { senderId: req.userId }, orderBy: { sentAt: 'desc' }, include: { stamps: true } });
@@ -304,13 +301,49 @@ router.post('/:id/read', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------------------------------------------------------------
+// HELPERS (Formato original seguro)
+// ---------------------------------------------------------------
 function serializeStamp(ls) {
-  return { id: ls.stampId || ls.id, name: ls.name, imagePath: ls.imagePath, imageData: ls.imageData, isCustom: ls.isCustom, quantity: ls.quantity };
+  return {
+    id: ls.stampId || ls.id,
+    name: ls.name,
+    imagePath: ls.imagePath,
+    imageData: ls.imageData,
+    isCustom: ls.isCustom,
+    quantity: ls.quantity,
+  };
 }
+
 function serializeSent(l) {
-  return { id: l.id, trackingCode: l.trackingCode, to: l.recipientAddress, title: l.title, kind: l.kind, status: l.status, sentAt: l.sentAt, estimatedDelivery: l.estimatedDelivery, deliveredAt: l.deliveredAt, returnedAt: l.returnedAt, failureReason: l.failureReason, stamps: (l.stamps || []).map(serializeStamp) };
+  return {
+    id: l.id,
+    trackingCode: l.trackingCode,
+    to: l.recipientAddress,
+    title: l.title,
+    kind: l.kind,
+    status: l.status,
+    sentAt: l.sentAt,
+    estimatedDelivery: l.estimatedDelivery,
+    deliveredAt: l.deliveredAt,
+    returnedAt: l.returnedAt,
+    failureReason: l.failureReason,
+    stamps: (l.stamps || []).map(serializeStamp),
+  };
 }
+
 function serializeReceived(l) {
-  return { id: l.id, fromUsername: l.sender.username, from: l.sender.displayAddress, title: l.title, kind: l.kind, status: l.status, deliveredAt: l.deliveredAt, read: l.reads.length > 0, stamps: (l.stamps || []).map(serializeStamp) };
+  return {
+    id: l.id,
+    fromUsername: l.sender.username,
+    from: l.sender.displayAddress,
+    title: l.title,
+    kind: l.kind,
+    status: l.status,
+    deliveredAt: l.deliveredAt,
+    read: l.reads.length > 0,
+    stamps: (l.stamps || []).map(serializeStamp),
+  };
 }
+
 export default router;
