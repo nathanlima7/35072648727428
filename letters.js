@@ -368,26 +368,28 @@ router.get('/returned', async (req, res, next) => {
 // ---------------------------------------------------------------
 // GET /api/letters/:id
 // ---------------------------------------------------------------
+// --- DETALHE (com regra de leitura) ---
 router.get('/:id', async (req, res, next) => {
   try {
     const letter = await prisma.letter.findUnique({
       where: { id: req.params.id },
       include: {
+        stamps: { include: { stamp: true } }, 
         sender: { select: { id: true, username: true, displayAddress: true } },
         recipient: { select: { id: true, username: true, displayAddress: true } },
         events: { orderBy: { createdAt: 'asc' } },
-        stamps: true,
         reads: { where: { userId: req.userId } },
       },
     });
-    if (!letter) return res.status(404).json({ error: 'Mensagem não encontrada.' });
+    if (!letter) return res.status(404).json({ error: 'Carta não encontrada.' });
 
     const isSender = letter.senderId === req.userId;
     const isRecipient = letter.recipientId === req.userId;
     if (!isSender && !isRecipient) {
-      return res.status(403).json({ error: 'Sem acesso a esta mensagem.' });
+      return res.status(403).json({ error: 'Sem acesso a esta carta.' });
     }
 
+    // Regra fundamental: destinatário só lê após 'entregue'
     const canRead = isSender || letter.status === 'entregue';
 
     res.json({
@@ -395,21 +397,21 @@ router.get('/:id', async (req, res, next) => {
       trackingCode: letter.trackingCode,
       sender: letter.sender,
       recipient: letter.recipient,
-      recipientAddress: letter.recipientAddress,
       title: letter.title,
-      kind: letter.kind,
       status: letter.status,
       sentAt: letter.sentAt,
       estimatedDelivery: letter.estimatedDelivery,
       deliveredAt: letter.deliveredAt,
-      returnedAt: letter.returnedAt,
-      failureReason: letter.failureReason,
       content: canRead ? letter.content : null,
-      attachedImage: canRead ? letter.attachedImage : null,
       canRead,
       read: letter.reads.length > 0,
-      stamps: (letter.stamps || []).map(serializeStamp),
-      events: letter.events.map((ev) => ({
+      stamps: letter.stamps.map(ls => ({
+        id: ls.stamp.id,
+        name: ls.stamp.name,
+        imagePath: ls.stamp.imagePath,
+        quantity: ls.quantity,
+      })),
+      events: letter.events.map(ev => ({
         status: ev.status,
         message: ev.message,
         at: ev.createdAt,
