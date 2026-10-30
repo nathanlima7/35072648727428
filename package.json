@@ -4,7 +4,7 @@
   "type": "module",
     "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js",
+    "start": "npx prisma generate --schema prisma-schema.prisma && node server.js",
     "postinstall": "node_modules/.bin/prisma generate --schema prisma-schema.prisma",
     "migrate": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
