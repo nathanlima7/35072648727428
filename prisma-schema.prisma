@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/@prisma/client"
 }
 
 datasource db {
@@ -58,6 +59,7 @@ model Draft {
   id               String   @id @default(cuid())
   userId           String
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind             String   @default("letter")   // <--- ADICIONE ESTA LINHA
   recipientAddress String?
   title            String?
   content          String   @default("")
