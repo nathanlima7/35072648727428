@@ -345,6 +345,7 @@ router.get('/returned', async (req, res, next) => {
         status: { in: ['devolvida', 'devolvendo_ao_remetente', 'endereco_nao_localizado'] },
       },
       orderBy: { sentAt: 'desc' },
+      include: { stamps: true },
     });
     res.json(letters.map((l) => ({
       id: l.id,
