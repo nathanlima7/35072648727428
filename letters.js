@@ -35,6 +35,7 @@ router.post('/', async (req, res, next) => {
         quantity: z.number().int().min(1).max(20),
       })).max(10).optional(),
 
+      // AUMENTADO PARA 5MB PARA ACEITAR A IMAGEM
       attachedImage: z.string().max(5_000_000).optional().nullable(),
 
       title: z.string().max(120).nullable().optional(),
@@ -43,7 +44,7 @@ router.post('/', async (req, res, next) => {
 
     const data = schema.parse(req.body);
 
-    // 1. Endereço (igual para carta e telegrama)
+    // 1. Endereço
     let recipientAddress = data.recipientAddress
       ? String(data.recipientAddress).trim().replace(/\s+/g, ' ')
       : null;
@@ -75,18 +76,17 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ error: 'Você não pode enviar mensagem para si mesmo.' });
     }
 
-    // Como deve ficar (Ignorando maiúsculas/minúsculas e usando a versão antiga do Prisma 5):
-const recipient = await prisma.user.findFirst({
-  where: {
-    displayAddress: {
-      equals: recipientAddress,
-      mode: 'insensitive', // A mágica acontece aqui!
-    },
-  },
-});
+    const recipient = await prisma.user.findFirst({
+      where: {
+        displayAddress: {
+          equals: recipientAddress,
+          mode: 'insensitive',
+        },
+      },
+    });
     const enderecoExiste = Boolean(recipient);
 
-    // 2. Normaliza selos (ignorado para telegrama)
+    // 2. Normaliza selos
     const stampMap = new Map();
     if (data.kind === 'letter') {
       for (const s of (data.stamps || [])) {
@@ -96,19 +96,16 @@ const recipient = await prisma.user.findFirst({
     const stampList = [...stampMap.entries()].map(([stampId, quantity]) => ({ stampId, quantity }));
 
     // 3. Extravio + ETA
-    // O telegrama é imune a extravio. A carta continua com 3% de chance.
     const vaiExtravirar = data.kind === 'telegram' ? false : Math.random() < LOST_LETTER_CHANCE;
 
     const now = Date.now();
     let etaMs;
 
     if (data.kind === 'telegram') {
-      // Telegrama: Entrega rápida (4 a 5 horas)
       const min = 4 * 60 * 60 * 1000;
       const max = 5 * 60 * 60 * 1000;
       etaMs = min + Math.random() * (max - min);
     } else {
-      // Carta: fluxo normal (1 a 3 dias ou modo dev)
       if (config.delivery.devMode) {
         const min = config.delivery.devMinSeconds * 1000;
         const max = config.delivery.devMaxSeconds * 1000;
@@ -123,7 +120,7 @@ const recipient = await prisma.user.findFirst({
 
     // 4. Transação única
     const letter = await prisma.$transaction(async (tx) => {
-      // 4.1 Cobrança do Telegrama (50 gemas)
+      // Cobrança do Telegrama
       if (data.kind === 'telegram') {
         const wallet = await tx.wallet.findUnique({ where: { userId: sender.id } });
         if (!wallet || wallet.balance < 50) {
@@ -149,7 +146,7 @@ const recipient = await prisma.user.findFirst({
         });
       }
 
-      // 4.2 Validação de posse de cada selo (apenas para carta)
+      // Validação de posse de cada selo
       if (data.kind === 'letter' && stampList.length) {
         const owned = await tx.userStamp.findMany({
           where: {
@@ -171,16 +168,16 @@ const recipient = await prisma.user.findFirst({
         }
       }
 
-      // 4.3 Cria a correspondência
+      // Cria a correspondência
       const l = await tx.letter.create({
         data: {
           trackingCode: generateTrackingCode(),
           senderId: sender.id,
           recipientId: recipient?.id ?? null,
           recipientAddress,
-          title: data.kind === 'telegram' ? null : (data.title ?? null), // Telegrama não tem título
+          title: data.kind === 'telegram' ? null : (data.title ?? null),
           content: data.content,
-          attachedImage: data.kind === 'telegram' ? null : (data.attachedImage ?? null), // Telegrama não tem foto
+          attachedImage: data.kind === 'telegram' ? null : (data.attachedImage ?? null),
           kind: data.kind,
           status: 'postada',
           estimatedDelivery,
@@ -197,7 +194,7 @@ const recipient = await prisma.user.findFirst({
         },
       });
 
-      // 4.4 Registra os selos usados + decrementa estoque (apenas carta)
+      // Registra os selos usados
       if (data.kind === 'letter') {
         for (const { stampId, quantity } of stampList) {
           const stamp = await tx.stamp.findUnique({ where: { id: stampId } });
@@ -248,9 +245,8 @@ const recipient = await prisma.user.findFirst({
       return l;
     });
 
-    // 5. Agendamento no Scheduler
+    // 5. Agendamento
     if (data.kind === 'telegram') {
-      // Para telegrama, criamos apenas 1 job direto para 'entregue'
       await prisma.deliveryJob.create({
         data: {
           id: `${letter.id}:entregue`,
@@ -260,14 +256,13 @@ const recipient = await prisma.user.findFirst({
         },
       }).catch(() => {});
     } else {
-      // Para cartas, segue o fluxo normal (que já cuida de devolução, extravio, etc)
       await scheduleDelivery(letter.id, estimatedDelivery, {
         enderecoExiste,
         vaiExtravirar,
       }).catch((e) => console.error('[letters] schedule:', e.message));
     }
 
-    // 6. Notificação de "a caminho" (apenas para cartas que o destinatário existe)
+    // 6. Notificação
     if (recipient && data.kind === 'letter') {
       import('./push.js')
         .then(({ notifyLetterOnTheWay }) => notifyLetterOnTheWay(letter, sender, recipient))
@@ -367,8 +362,8 @@ router.get('/returned', async (req, res, next) => {
 
 // ---------------------------------------------------------------
 // GET /api/letters/:id
-// ---------------------------------------------------------------
 // --- DETALHE (com regra de leitura) ---
+// ---------------------------------------------------------------
 router.get('/:id', async (req, res, next) => {
   try {
     const letter = await prisma.letter.findUnique({
@@ -389,7 +384,6 @@ router.get('/:id', async (req, res, next) => {
       return res.status(403).json({ error: 'Sem acesso a esta carta.' });
     }
 
-    // Regra fundamental: destinatário só lê após 'entregue'
     const canRead = isSender || letter.status === 'entregue';
 
     res.json({
@@ -397,12 +391,17 @@ router.get('/:id', async (req, res, next) => {
       trackingCode: letter.trackingCode,
       sender: letter.sender,
       recipient: letter.recipient,
+      recipientAddress: letter.recipientAddress,
       title: letter.title,
+      kind: letter.kind,
       status: letter.status,
       sentAt: letter.sentAt,
       estimatedDelivery: letter.estimatedDelivery,
       deliveredAt: letter.deliveredAt,
+      returnedAt: letter.returnedAt,
+      failureReason: letter.failureReason,
       content: canRead ? letter.content : null,
+      attachedImage: canRead ? letter.attachedImage : null, // <--- A CORREÇÃO ESTÁ AQUI
       canRead,
       read: letter.reads.length > 0,
       stamps: letter.stamps.map(ls => ({
