@@ -35,7 +35,7 @@ router.post('/', async (req, res, next) => {
         quantity: z.number().int().min(1).max(20),
       })).max(10).optional(),
 
-      attachedImage: z.string().max(1_500_000).optional().nullable(),
+      attachedImage: z.string().max(5_000_000).optional().nullable(),
 
       title: z.string().max(120).nullable().optional(),
       content: z.string().min(1).max(50_000),
