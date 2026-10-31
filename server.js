@@ -18,7 +18,7 @@ const app = express();
 
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin, credentials: true }));
-app.use(express.json({ limit: '2mb' }));   // ← subiu de 256kb para 2mb
+app.use(express.json({ limit: '5mb' }));   // ← subiu de 256kb para 2mb
 app.use(apiLimiter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
