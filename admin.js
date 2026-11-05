@@ -146,21 +146,26 @@ router.post('/execute', async (req, res, next) => {
       return res.json({ success: true, message: `Extrato de @${arg1} foi limpo.` });
     }
 
-    // ============================================================
+        // ============================================================
     // 8. VERIFICAR NOTIFICAÇÕES
     // ============================================================
     if (action === '#notiActive') {
       if (!arg1) return res.status(400).json({ error: 'Sintaxe: #notiActive.username' });
-      const user = await prisma.user.findUnique({ 
-        where: { username: arg1 },
-        include: { pushSubscriptions: true } 
-      });
+      
+      const user = await prisma.user.findUnique({ where: { username: arg1 } });
       if (!user) throw new Error('Usuário não encontrado.');
       
-      const active = user.pushSubscriptions.filter(s => s.active).length;
+      // Busca direto na tabela PushSubscription
+      const activeSubs = await prisma.pushSubscription.count({
+        where: { 
+          userId: user.id,
+          active: true 
+        }
+      });
+      
       return res.json({ 
         success: true, 
-        message: `@${arg1} tem ${active} dispositivo(s) com notificações ativas.` 
+        message: `@${arg1} tem ${activeSubs} dispositivo(s) com notificações ativas.` 
       });
     }
 
