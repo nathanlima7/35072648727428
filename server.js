@@ -13,12 +13,13 @@ import pushRoutes from './push.js';
 import { errorHandler, notFound, apiLimiter } from './middleware.js';
 import { startScheduler } from './delivery.js';
 import { startWeeklyResetScheduler } from './weekly-reset.js';
+import adminRoutes from './admin.js';
 
 const app = express();
 
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin, credentials: true }));
-app.use(express.json({ limit: '5mb' }));   // ← subiu de 256kb para 2mb
+app.use(express.json({ limit: '5mb' }));   // ← subiu de 256kb para 5mb
 app.use(apiLimiter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -31,6 +32,7 @@ app.use('/api/tracking', trackingRoutes);
 app.use('/api/stamps', stampsRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
