@@ -71,7 +71,7 @@ router.post('/execute', async (req, res, next) => {
             userId: user.id,
             type: amount >= 0 ? 'credit' : 'debit',
             amount: Math.abs(amount),
-            reason: `[ADMIN] Ajuste manual`,
+            reason: `Crédito extra`,
             refType: 'admin_command',
           },
         });
