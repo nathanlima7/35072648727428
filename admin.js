@@ -250,6 +250,52 @@ router.post('/execute', async (req, res, next) => {
       });
     }
 
+        // ============================================================
+    // 13. QUANTIDADE DE CARTAS E TELEGRAMAS
+    // ============================================================
+    if (action === '#qtdCartas') {
+      if (!arg1) return res.status(400).json({ error: 'Sintaxe: #qtdCartas.username' });
+
+      const user = await prisma.user.findUnique({ where: { username: arg1 } });
+      if (!user) throw new Error('Usuário não encontrado.');
+
+      // 1. Cartas/Telegramas Enviados (agrupados por status)
+      const sentStats = await prisma.letter.groupBy({
+        by: ['status'],
+        where: { senderId: user.id },
+        _count: { id: true },
+      });
+
+      // 2. Cartas/Telegramas Recebidos (agrupados por status)
+      const receivedStats = await prisma.letter.groupBy({
+        by: ['status'],
+        where: { recipientId: user.id },
+        _count: { id: true },
+      });
+
+      // Função auxiliar para formatar o texto bonitinho
+      const formatStats = (stats) => {
+        if (stats.length === 0) return '0';
+        
+        const entregues = stats.find(s => s.status === 'entregue')?._count.id || 0;
+        const devolvidas = stats.find(s => s.status === 'devolvida')?._count.id || 0;
+        const extraviadas = stats.find(s => s.status === 'extraviada')?._count.id || 0;
+        const pendentes = stats.reduce((acc, curr) => {
+          if (!['entregue', 'devolvida', 'extraviada', 'endereco_nao_localizado'].includes(curr.status)) {
+            return acc + curr._count.id;
+          }
+          return acc;
+        }, 0);
+
+        return `${entregues} entregues, ${pendentes} em trânsito, ${devolvidas} devolvidas, ${extraviadas} extraviadas`;
+      };
+
+      return res.json({ 
+        success: true, 
+        message: `@${arg1} -> ENVIADAS: [${formatStats(sentStats)}]. RECEBIDAS: [${formatStats(receivedStats)}].` 
+      });
+    }
+
     // ============================================================
     // COMANDO DESCONHECIDO
     // ============================================================
