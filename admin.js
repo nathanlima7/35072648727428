@@ -44,10 +44,9 @@ router.post('/execute', async (req, res, next) => {
   try {
     const { command } = z.object({ command: z.string() }).parse(req.body);
 
-    // O comando é dividido por ponto: #comando.arg1.arg2
     const parts = command.trim().split('.');
     const action = parts[0];
-    const arg1 = parts[1]; // Geralmente o username
+    const arg1 = parts[1];
     const arg2 = parts[2];
     const arg3 = parts[3];
 
@@ -91,7 +90,7 @@ router.post('/execute', async (req, res, next) => {
     }
 
     // ============================================================
-    // 3. REMOVER BANIMENTO (SUGESTÃO)
+    // 3. REMOVER BANIMENTO
     // ============================================================
     if (action === '#unban') {
       if (!arg1) return res.status(400).json({ error: 'Sintaxe: #unban.username' });
@@ -114,7 +113,6 @@ router.post('/execute', async (req, res, next) => {
     if (action === '#resetUser') {
       if (!arg1) return res.status(400).json({ error: 'Sintaxe: #resetUser.username' });
       
-      // Gera uma senha temporária (ex: k9F2mP)
       const newPassword = crypto.randomBytes(3).toString('hex');
       const passwordHash = await bcrypt.hash(newPassword, 12);
 
@@ -126,7 +124,7 @@ router.post('/execute', async (req, res, next) => {
     }
 
     // ============================================================
-    // 6. DELETAR CARTA (POR ID)
+    // 6. DELETAR CARTA
     // ============================================================
     if (action === '#delCarta') {
       if (!arg1) return res.status(400).json({ error: 'Sintaxe: #delCarta.id_da_carta' });
@@ -146,7 +144,7 @@ router.post('/execute', async (req, res, next) => {
       return res.json({ success: true, message: `Extrato de @${arg1} foi limpo.` });
     }
 
-        // ============================================================
+    // ============================================================
     // 8. VERIFICAR NOTIFICAÇÕES
     // ============================================================
     if (action === '#notiActive') {
@@ -155,22 +153,15 @@ router.post('/execute', async (req, res, next) => {
       const user = await prisma.user.findUnique({ where: { username: arg1 } });
       if (!user) throw new Error('Usuário não encontrado.');
       
-      // Busca direto na tabela PushSubscription
       const activeSubs = await prisma.pushSubscription.count({
-        where: { 
-          userId: user.id,
-          active: true 
-        }
+        where: { userId: user.id, active: true }
       });
       
-      return res.json({ 
-        success: true, 
-        message: `@${arg1} tem ${activeSubs} dispositivo(s) com notificações ativas.` 
-      });
+      return res.json({ success: true, message: `@${arg1} tem ${activeSubs} dispositivo(s) com notificações ativas.` });
     }
 
     // ============================================================
-    // 9. DAR SELO (SUGESTÃO)
+    // 9. DAR SELO
     // ============================================================
     if (action === '#addSelo') {
       const stampId = arg2;
@@ -197,11 +188,9 @@ router.post('/execute', async (req, res, next) => {
     }
 
     // ============================================================
-    // 10. CORRIGIR ENDEREÇO (SUGESTÃO)
+    // 10. CORRIGIR ENDEREÇO
     // ============================================================
     if (action === '#fixAddress') {
-      // Sintaxe: #fixAddress.username.Rua.Numero.Cidade
-      // Isso é mais complexo porque os endereços têm espaço. Vamos pegar tudo após o username.
       const rawArgs = command.split('.');
       const username = rawArgs[1];
       const street = rawArgs[2];
@@ -212,10 +201,7 @@ router.post('/execute', async (req, res, next) => {
         return res.status(400).json({ error: 'Sintaxe: #fixAddress.username.Rua.Numero.Cidade' });
       }
 
-      // Precisamos importar o buildDisplayAddress do utils
-      // Mas para simplificar, vamos fazer a concatenação manual igual o utils faz
       const displayAddress = `${street}, nº ${number} — ${city}`;
-
       const user = await prisma.user.findUnique({ where: { username } });
       if (!user) throw new Error('Usuário não encontrado.');
 
@@ -228,7 +214,7 @@ router.post('/execute', async (req, res, next) => {
     }
 
     // ============================================================
-    // 11. LIMPAR RASCUNHOS (SUGESTÃO)
+    // 11. LIMPAR RASCUNHOS
     // ============================================================
     if (action === '#cleanDrafts') {
       if (!arg1) return res.status(400).json({ error: 'Sintaxe: #cleanDrafts.username' });
@@ -238,6 +224,30 @@ router.post('/execute', async (req, res, next) => {
 
       const result = await prisma.draft.deleteMany({ where: { userId: user.id } });
       return res.json({ success: true, message: `${result.count} rascunho(s) de @${arg1} deletado(s).` });
+    }
+
+    // ============================================================
+    // 12. QUANTIDADE DE SELOS
+    // ============================================================
+    if (action === '#qtdSelos') {
+      if (!arg1) return res.status(400).json({ error: 'Sintaxe: #qtdSelos.username' });
+
+      const user = await prisma.user.findUnique({ where: { username: arg1 } });
+      if (!user) throw new Error('Usuário não encontrado.');
+
+      const stats = await prisma.userStamp.groupBy({
+        by: ['source'],
+        where: { userId: user.id },
+        _sum: { quantity: true },
+      });
+
+      const purchased = stats.find(s => s.source === 'purchased')?._sum.quantity || 0;
+      const received = stats.find(s => s.source === 'received')?._sum.quantity || 0;
+
+      return res.json({ 
+        success: true, 
+        message: `@${arg1} possui ${purchased} selos comprados e ${received} selos recebidos em cartas.` 
+      });
     }
 
     // ============================================================
