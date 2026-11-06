@@ -98,13 +98,53 @@ router.post('/execute', async (req, res, next) => {
       return res.json({ success: true, message: `Usuário @${arg1} foi DESBANIDO.` });
     }
 
-    // ============================================================
-    // 4. DELETAR USUÁRIO
+        // ============================================================
+    // 4. DELETAR USUÁRIO (EXCLUSÃO EM CADEIA)
     // ============================================================
     if (action === '#delUser') {
       if (!arg1) return res.status(400).json({ error: 'Sintaxe: #delUser.username' });
-      await prisma.user.delete({ where: { username: arg1 } });
-      return res.json({ success: true, message: `Usuário @${arg1} e todos os seus dados foram DELETADOS.` });
+      
+      const user = await prisma.user.findUnique({ where: { username: arg1 } });
+      if (!user) throw new Error('Usuário não encontrado.');
+
+      // Executa a exclusão em cadeia dentro de uma transação
+      await prisma.$transaction(async (tx) => {
+        const userId = user.id;
+
+        // 1. Itens que possuem relação direta com o usuário
+        await tx.letterRead.deleteMany({ where: { userId } });
+        await tx.refreshToken.deleteMany({ where: { userId } });
+        await tx.pushSubscription.deleteMany({ where: { userId } });
+        await tx.notificationPreference.deleteMany({ where: { userId } });
+        await tx.walletTransaction.deleteMany({ where: { userId } });
+        await tx.wallet.deleteMany({ where: { userId } });
+        await tx.draft.deleteMany({ where: { userId } });
+        await tx.userStamp.deleteMany({ where: { userId } });
+
+        // 2. Cartas (Precisamos apagar os eventos e selos atrelados a elas primeiro)
+        const letters = await tx.letter.findMany({
+          where: {
+            OR: [{ senderId: userId }, { recipientId: userId }]
+          },
+          select: { id: true }
+        });
+
+        if (letters.length > 0) {
+          const letterIds = letters.map(l => l.id);
+          await tx.trackingEvent.deleteMany({ where: { letterId: { in: letterIds } } });
+          await tx.letterStamp.deleteMany({ where: { letterId: { in: letterIds } } });
+          await tx.deliveryJob.deleteMany({ where: { letterId: { in: letterIds } } });
+          await tx.letter.deleteMany({ where: { id: { in: letterIds } } });
+        }
+
+        // 3. Selos autorais criados por este usuário
+        await tx.stamp.deleteMany({ where: { ownerId: userId } });
+
+        // 4. Finalmente, deleta o usuário
+        await tx.user.delete({ where: { id: userId } });
+      });
+
+      return res.json({ success: true, message: `Usuário @${arg1} e todos os seus dados foram DELETADOS em cadeia.` });
     }
 
     // ============================================================
