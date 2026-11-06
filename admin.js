@@ -336,6 +336,38 @@ router.post('/execute', async (req, res, next) => {
       });
     }
 
+        // ============================================================
+    // 14. VERIFICAR STATUS DE LEITURA (LIDAS E NÃO LIDAS)
+    // ============================================================
+    if (action === '#statusCartas') {
+      if (!arg1) return res.status(400).json({ error: 'Sintaxe: #statusCartas.username' });
+
+      const user = await prisma.user.findUnique({ where: { username: arg1 } });
+      if (!user) throw new Error('Usuário não encontrado.');
+
+      // Busca todas as cartas entregues para o usuário
+      const receivedLetters = await prisma.letter.findMany({
+        where: { 
+          recipientId: user.id,
+          status: 'entregue'
+        },
+        include: {
+          reads: true // Inclui a tabela de leituras para checar se há registros
+        }
+      });
+
+      // Calcula os totais
+      const total = receivedLetters.length;
+      // Se o array 'reads' tiver pelo menos 1 item, a carta foi lida
+      const readCount = receivedLetters.filter(l => l.reads.length > 0).length;
+      const unreadCount = total - readCount;
+
+      return res.json({ 
+        success: true, 
+        message: `@${arg1} recebeu ${total} carta(s) entregue(s). [${readCount} LIDA(S) / ${unreadCount} NÃO LIDA(S)].` 
+      });
+    }
+
     // ============================================================
     // COMANDO DESCONHECIDO
     // ============================================================
